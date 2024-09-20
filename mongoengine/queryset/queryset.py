@@ -35,48 +35,68 @@ class QuerySet(BaseQuerySet):
     _len = None
     _result_cache = None
 
-    def __iter__(self):
+    def __aiter__(self):
         """Iteration utilises a results cache which iterates the cursor
         in batches of ``ITER_CHUNK_SIZE``.
 
         If ``self._has_more`` the cursor hasn't been exhausted so cache then
         batch. Otherwise iterate the result_cache.
         """
-        self._iter = True
-
-        if self._has_more:
-            return self._iter_results()
-
-        # iterating over the cache.
-        return iter(self._result_cache)
+        return self
+        # TODO: make use of result cache
+        # self._iter = True
+        #
+        # if self._has_more:
+        #     return self._iter_results()
+        #
+        # # iterating over the cache.
+        # return iter(self._result_cache)
 
     def __len__(self):
         """Since __len__ is called quite frequently (for example, as part of
         list(qs)), we populate the result cache and cache the length.
         """
+        raise Exception("Cannot make use of len, make use of object function len()")
+        # if self._len is not None:
+        #     return self._len
+        #
+        # # Populate the result cache with *all* of the docs in the cursor
+        # if self._has_more:
+        #     list(self._iter_results())
+        #
+        # # Cache the length of the complete result cache and return it
+        # self._len = len(self._result_cache)
+        # return self._len
+
+    async def len(self):
+        # TODO: make use of cache
+        # return len(await self.to_list())
         if self._len is not None:
             return self._len
 
         # Populate the result cache with *all* of the docs in the cursor
         if self._has_more:
-            list(self._iter_results())
+            async for _ in self._iter_results():
+                pass
 
         # Cache the length of the complete result cache and return it
         self._len = len(self._result_cache)
         return self._len
 
-    def __repr__(self):
-        """Provide a string representation of the QuerySet"""
-        if self._iter:
-            return ".. queryset mid-iteration .."
+    # def __repr__(self):
+    #     """Provide a string representation of the QuerySet"""
+    #     # if self._iter:
+    #     #     return ".. queryset mid-iteration .."
+    #     #
+    #     # self._populate_cache()
+    #     # data = self._result_cache[: REPR_OUTPUT_SIZE + 1]
+    #     # if len(data) > REPR_OUTPUT_SIZE:
+    #     #     data[-1] = "...(remaining elements truncated)..."
+    #     # return repr(data)
+    #
+    #     return ".. queryset mid-iteration .."
 
-        self._populate_cache()
-        data = self._result_cache[: REPR_OUTPUT_SIZE + 1]
-        if len(data) > REPR_OUTPUT_SIZE:
-            data[-1] = "...(remaining elements truncated)..."
-        return repr(data)
-
-    def _iter_results(self):
+    async def _iter_results(self):
         """A generator for iterating over the result cache.
 
         Also populates the cache if there are more possible results to
@@ -106,9 +126,9 @@ class QuerySet(BaseQuerySet):
 
             # Otherwise, populate more of the cache and repeat.
             if len(self._result_cache) <= pos:
-                self._populate_cache()
+                await self._populate_cache()
 
-    def _populate_cache(self):
+    async def _populate_cache(self):
         """
         Populates the result cache with ``ITER_CHUNK_SIZE`` more entries
         (until the cursor is exhausted).
@@ -125,14 +145,14 @@ class QuerySet(BaseQuerySet):
         # the result cache.
         try:
             for _ in range(ITER_CHUNK_SIZE):
-                self._result_cache.append(next(self))
-        except StopIteration:
+                self._result_cache.append(await anext(self))
+        except StopAsyncIteration:
             # Getting this exception means there are no more docs in the
             # db cursor. Set _has_more to False so that we can use that
             # information in other places.
             self._has_more = False
 
-    def count(self, with_limit_and_skip=False):
+    async def count(self, with_limit_and_skip=False):
         """Count the selected elements in the query.
 
         :param with_limit_and_skip (optional): take any :meth:`limit` or
@@ -140,7 +160,7 @@ class QuerySet(BaseQuerySet):
             getting the count
         """
         if with_limit_and_skip is False:
-            return super().count(with_limit_and_skip)
+            return await super().count(with_limit_and_skip)
 
         if self._len is None:
             # cache the length
@@ -154,6 +174,9 @@ class QuerySet(BaseQuerySet):
             raise OperationError("QuerySet already cached")
 
         return self._clone_into(QuerySetNoCache(self._document, self._collection))
+
+    async def to_list(self):
+        return [x async for x in self]
 
 
 class QuerySetNoCache(BaseQuerySet):

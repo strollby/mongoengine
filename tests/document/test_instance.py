@@ -3775,10 +3775,10 @@ class TestDocumentInstance(MongoDBTestCase):
         with pytest.raises(InvalidDocumentError) as exc_info:
             list(Jedi.objects)
 
-        assert str(
-            exc_info.value
-        ) == "Invalid data to create a `Jedi` instance.\nField 'light_saber' - The source SON object needs to be of type 'dict' but a '%s' was found" % type(
-            value
+        assert (
+            str(exc_info.value)
+            == "Invalid data to create a `Jedi` instance.\nField 'light_saber' - The source SON object needs to be of type 'dict' but a '%s' was found"
+            % type(value)
         )
 
 

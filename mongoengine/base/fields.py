@@ -322,7 +322,7 @@ class ComplexBaseField(BaseField):
     @staticmethod
     def _lazy_load_refs(instance, name, ref_values, *, max_depth):
         _dereference = _import_class("DeReference")()
-        documents = _dereference(
+        documents = _dereference.try_sync(
             ref_values,
             max_depth=max_depth,
             instance=instance,

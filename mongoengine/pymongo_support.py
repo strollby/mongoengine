@@ -20,7 +20,7 @@ else:
     LEGACY_JSON_OPTIONS = json_util.DEFAULT_JSON_OPTIONS
 
 
-def count_documents(
+async def count_documents(
     collection, filter, skip=None, limit=None, hint=None, collation=None
 ):
     """Pymongo>3.7 deprecates count in favour of count_documents"""
@@ -44,9 +44,9 @@ def count_documents(
             if not filter and set(kwargs) <= {"max_time_ms"} and not is_active_session:
                 # when no filter is provided, estimated_document_count
                 # is a lot faster as it uses the collection metadata
-                return collection.estimated_document_count(**kwargs)
+                return await collection.estimated_document_count(**kwargs)
             else:
-                return collection.count_documents(
+                return await collection.count_documents(
                     filter=filter, session=connection._get_session(), **kwargs
                 )
         except OperationFailure as err:
@@ -65,7 +65,7 @@ def count_documents(
                 raise
 
     cursor = collection.find(filter)
-    for option, option_value in kwargs.items():
+    async for option, option_value in kwargs.items():
         cursor_method = getattr(cursor, option)
         cursor = cursor_method(option_value)
     with_limit_and_skip = "skip" in kwargs or "limit" in kwargs

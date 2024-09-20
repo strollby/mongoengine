@@ -211,7 +211,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         cls._collection = None
 
     @classmethod
-    def _get_collection(cls):
+    async def _get_collection(cls):
         """Return the PyMongo collection corresponding to this document.
 
         Upon first call, this method:
@@ -234,8 +234,8 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
             # Ensure indexes on the collection unless auto_create_index was
             # set to False. Plus, there is no need to ensure indexes on slave.
             db = cls._get_db()
-            if cls._meta.get("auto_create_index", True) and db.client.is_primary:
-                cls.ensure_indexes()
+            if cls._meta.get("auto_create_index", True) and await db.client.is_primary:
+                await cls.ensure_indexes()
 
         return cls._collection
 
@@ -311,7 +311,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
 
         return data
 
-    def modify(self, query=None, **update):
+    async def modify(self, query=None, **update):
         """Perform an atomic update of the document in the database and reload
         the document object using updated version.
 
@@ -344,7 +344,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         # Need to add shard key to query, or you get an error
         query.update(self._object_key)
 
-        updated = self._qs(**query).modify(new=True, **update)
+        updated = await self._qs.modify(new=True, **update)
         if updated is None:
             return False
 
@@ -356,7 +356,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
 
         return True
 
-    def save(
+    async def save(
         self,
         force_insert=False,
         validate=True,
@@ -441,19 +441,19 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         # Important to do this here to avoid that the index creation gets wrapped in the try/except block below
         # and turned into mongoengine.OperationError
         if self._collection is None:
-            _ = self._get_collection()
+            _ = await self._get_collection()
         elif self._meta.get("auto_create_index_on_save", False):
             # ensure_indexes is called as part of _get_collection so no need to re-call it again here
-            self.ensure_indexes()
+            await self.ensure_indexes()
 
         try:
             # Save a new document or update an existing one
             if created:
-                object_id = self._save_create(
+                object_id = await self._save_create(
                     doc=doc, force_insert=force_insert, write_concern=write_concern
                 )
             else:
-                object_id, created = self._save_update(
+                object_id, created = await self._save_update(
                     doc, save_condition, write_concern
                 )
 
@@ -470,7 +470,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
                 if cascade_kwargs:  # Allow granular control over cascades
                     kwargs.update(cascade_kwargs)
                 kwargs["_refs"] = _refs
-                self.cascade_save(**kwargs)
+                await self.cascade_save(**kwargs)
 
         except pymongo.errors.DuplicateKeyError as err:
             message = "Tried to save duplicate unique keys (%s)"
@@ -498,29 +498,29 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
 
         return self
 
-    def _save_create(self, doc, force_insert, write_concern):
+    async def _save_create(self, doc, force_insert, write_concern):
         """Save a new document.
 
         Helper method, should only be used inside save().
         """
-        collection = self._get_collection()
+        collection = await self._get_collection()
         with set_write_concern(collection, write_concern) as wc_collection:
             if force_insert:
-                return wc_collection.insert_one(doc, session=_get_session()).inserted_id
+                resp = await wc_collection.insert_one(doc, session=_get_session())
+                return resp.inserted_id
             # insert_one will provoke UniqueError alongside save does not
             # therefore, it need to catch and call replace_one.
             if "_id" in doc:
                 select_dict = {"_id": doc["_id"]}
                 select_dict = self._integrate_shard_key(doc, select_dict)
-                raw_object = wc_collection.find_one_and_replace(
+                raw_object = await wc_collection.find_one_and_replace(
                     select_dict, doc, session=_get_session()
                 )
                 if raw_object:
                     return doc["_id"]
 
-            object_id = wc_collection.insert_one(
-                doc, session=_get_session()
-            ).inserted_id
+            resp = await wc_collection.insert_one(doc, session=_get_session())
+            object_id = resp.inserted_id
 
         return object_id
 
@@ -556,12 +556,12 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
 
         return select_dict
 
-    def _save_update(self, doc, save_condition, write_concern):
+    async def _save_update(self, doc, save_condition, write_concern):
         """Update an existing document.
 
         Helper method, should only be used inside save().
         """
-        collection = self._get_collection()
+        collection = await self._get_collection()
         object_id = doc["_id"]
         created = False
 
@@ -577,7 +577,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         if update_doc:
             upsert = save_condition is None
             with set_write_concern(collection, write_concern) as wc_collection:
-                last_error = wc_collection.update_one(
+                last_error = await wc_collection.update_one(
                     select_dict, update_doc, upsert=upsert, session=_get_session()
                 ).raw_result
             if not upsert and last_error["n"] == 0:
@@ -594,7 +594,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
 
         return object_id, created
 
-    def cascade_save(self, **kwargs):
+    async def cascade_save(self, **kwargs):
         """Recursively save any references and generic references on the
         document.
         """
@@ -618,7 +618,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
             if ref and ref_id not in _refs:
                 _refs.append(ref_id)
                 kwargs["_refs"] = _refs
-                ref.save(**kwargs)
+                await ref.save(**kwargs)
                 ref._changed_fields = []
 
     @property
@@ -651,7 +651,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
             select_dict["__".join(field_parts)] = val
         return select_dict
 
-    def update(self, **kwargs):
+    async def update(self, **kwargs):
         """Performs an update on the :class:`~mongoengine.Document`
         A convenience wrapper to :meth:`~mongoengine.QuerySet.update`.
 
@@ -663,14 +663,14 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
                 query = self.to_mongo()
                 if "_cls" in query:
                     del query["_cls"]
-                return self._qs.filter(**query).update_one(**kwargs)
+                return await self._qs.filter(**query).update_one(**kwargs)
             else:
                 raise OperationError("attempt to update a document not yet saved")
 
         # Need to add shard key to query, or you get an error
-        return self._qs.filter(**self._object_key).update_one(**kwargs)
+        return await self._qs.filter(**self._object_key).update_one(**kwargs)
 
-    def delete(self, signal_kwargs=None, **write_concern):
+    async def delete(self, signal_kwargs=None, **write_concern):
         """Delete the :class:`~mongoengine.Document` from the database. This
         will only take effect if the document has been previously saved.
 
@@ -692,7 +692,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
                 getattr(self, name).delete()
 
         try:
-            self._qs.filter(**self._object_key).delete(
+            await self._qs.filter(**self._object_key).delete(
                 write_concern=write_concern, _from_doc_delete=True
             )
         except pymongo.errors.OperationFailure as err:
@@ -767,7 +767,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         DeReference()([self], max_depth + 1)
         return self
 
-    def reload(self, *fields, **kwargs):
+    async def reload(self, *fields, **kwargs):
         """Reloads all attributes from the database.
 
         :param fields: (optional) args list of fields to reload
@@ -783,7 +783,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         if self.pk is None:
             raise self.DoesNotExist("Document does not exist")
 
-        obj = (
+        obj = await (
             self._qs.read_preference(ReadPreference.PRIMARY)
             .filter(**self._object_key)
             .only(*fields)
@@ -798,7 +798,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         for field in obj._data:
             if not fields or field in fields:
                 try:
-                    setattr(self, field, self._reload(field, obj[field]))
+                    setattr(self, field, self._reload(field, await obj.get(field)))
                 except (KeyError, AttributeError):
                     try:
                         # If field is a special field, e.g. items is stored as _reserved_items,
@@ -867,7 +867,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
                 klass._meta["delete_rules"] = delete_rules
 
     @classmethod
-    def drop_collection(cls):
+    async def drop_collection(cls):
         """Drops the entire collection associated with this
         :class:`~mongoengine.Document` type from the database.
 
@@ -881,10 +881,10 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
             )
         cls._collection = None
         db = cls._get_db()
-        db.drop_collection(coll_name, session=_get_session())
+        await db.drop_collection(coll_name, session=_get_session())
 
     @classmethod
-    def create_index(cls, keys, background=False, **kwargs):
+    async def create_index(cls, keys, background=False, **kwargs):
         """Creates the given indexes if required.
 
         :param keys: a single index key or a list of index keys (to
@@ -898,12 +898,14 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         index_spec["background"] = background
         index_spec.update(kwargs)
 
-        return cls._get_collection().create_index(
+        collection = await cls._get_collection()
+
+        return await collection.create_index(
             fields, session=_get_session(), **index_spec
         )
 
     @classmethod
-    def ensure_indexes(cls):
+    async def ensure_indexes(cls):
         """Checks the document meta data and ensures all the indexes exist.
 
         Global defaults can be set in the meta - see :doc:`guide/defining-documents`
@@ -923,7 +925,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         index_opts = cls._meta.get("index_opts") or {}
         index_cls = cls._meta.get("index_cls", True)
 
-        collection = cls._get_collection()
+        collection = await cls._get_collection()
 
         # determine if an index which we are creating includes
         # _cls as its first field; if so, we can avoid creating
@@ -946,7 +948,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
                 if "cls" in opts:
                     del opts["cls"]
 
-                collection.create_index(
+                await collection.create_index(
                     fields, background=background, session=_get_session(), **opts
                 )
 
@@ -958,7 +960,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
             if "cls" in index_opts:
                 del index_opts["cls"]
 
-            collection.create_index(
+            await collection.create_index(
                 "_cls", background=background, session=_get_session(), **index_opts
             )
 
@@ -1029,7 +1031,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         return indexes
 
     @classmethod
-    def compare_indexes(cls):
+    async def compare_indexes(cls):
         """Compares the indexes defined in MongoEngine with the ones
         existing in the database. Returns any missing/extra indexes.
         """
@@ -1037,7 +1039,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         required = cls.list_indexes()
 
         existing = []
-        collection = cls._get_collection()
+        collection = await cls._get_collection()
         for info in collection.index_information(session=_get_session()).values():
             if "_fts" in info["key"][0]:
                 # Useful for text indexes (but not only)

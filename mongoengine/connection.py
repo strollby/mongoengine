@@ -2,9 +2,10 @@ import collections
 import threading
 import warnings
 
-from pymongo import MongoClient, ReadPreference, uri_parser
+from pymongo import ReadPreference, uri_parser
+from pymongo.asynchronous.mongo_client import AsyncMongoClient
 from pymongo.common import _UUID_REPRESENTATIONS
-from pymongo.database import _check_name
+from pymongo.asynchronous.database import _check_name
 
 # DriverInfo was added in PyMongo 3.7.
 try:
@@ -357,7 +358,7 @@ def get_connection(alias=DEFAULT_CONNECTION_NAME, reconnect=False):
     if "mongo_client_class" in conn_settings:
         mongo_client_class = conn_settings.pop("mongo_client_class")
     else:
-        mongo_client_class = MongoClient
+        mongo_client_class = AsyncMongoClient
 
     # Re-use existing connection if one is suitable.
     existing_connection = _find_existing_connection(raw_conn_settings)

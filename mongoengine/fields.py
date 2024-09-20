@@ -62,7 +62,6 @@ except ImportError:
     Image = None
     ImageOps = None
 
-
 __all__ = (
     "StringField",
     "URLField",
@@ -1184,8 +1183,10 @@ class ReferenceField(BaseField):
         return self.document_type_obj
 
     @staticmethod
-    def _lazy_load_ref(ref_cls, dbref):
-        dereferenced_son = ref_cls._get_db().dereference(dbref, session=_get_session())
+    async def _lazy_load_ref(ref_cls, dbref):
+        dereferenced_son = await ref_cls._get_db().dereference(
+            dbref, session=_get_session()
+        )
         if dereferenced_son is None:
             raise DoesNotExist(f"Trying to dereference unknown document {dbref}")
 
@@ -1202,15 +1203,21 @@ class ReferenceField(BaseField):
         auto_dereference = instance._fields[self.name]._auto_dereference
         # Dereference DBRefs
         if auto_dereference and isinstance(ref_value, DBRef):
-            if hasattr(ref_value, "cls"):
-                # Dereference using the class type specified in the reference
-                cls = get_document(ref_value.cls)
-            else:
-                cls = self.document_type
-
-            instance._data[self.name] = self._lazy_load_ref(cls, ref_value)
+            raise Exception(
+                f"Fields have been not dereferenced, make sure it is done for {ref_value} using deref_field"
+            )
 
         return super().__get__(instance, owner)
+
+    async def deref_field(self, instance, owner):
+        ref_value = instance._data.get(self.name)
+        if hasattr(ref_value, "cls"):
+            # Dereference using the class type specified in the reference
+            cls = get_document(ref_value.cls)
+        else:
+            cls = self.document_type
+
+        instance._data[self.name] = await self._lazy_load_ref(cls, ref_value)
 
     def to_mongo(self, document):
         if isinstance(document, DBRef):

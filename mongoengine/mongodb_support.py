@@ -15,10 +15,11 @@ MONGODB_60 = (6, 0)
 MONGODB_70 = (7, 0)
 
 
-def get_mongodb_version():
+async def get_mongodb_version():
     """Return the version of the default connected mongoDB (first 2 digits)
 
     :return: tuple(int, int)
     """
-    version_list = get_connection().server_info()["versionArray"][:2]  # e.g: (3, 2)
+    server_info = await get_connection().server_info()
+    version_list = server_info["versionArray"][:2]  # e.g: (3, 2)
     return tuple(version_list)

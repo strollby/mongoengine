@@ -223,7 +223,6 @@ class TestContextManagers(MongoDBTestCase):
         _ = [th.join() for th in threads]
 
     def test_no_dereference_context_manager_nested(self):
-
         class User(Document):
             name = StringField()
 
@@ -554,7 +553,6 @@ class TestContextManagers(MongoDBTestCase):
 
     @requires_mongodb_gte_40
     def test_creating_a_document_within_a_transaction(self):
-
         class A(Document):
             name = StringField()
 
@@ -577,7 +575,6 @@ class TestContextManagers(MongoDBTestCase):
 
     @requires_mongodb_gte_40
     def test_creating_a_document_within_a_transaction_that_fails(self):
-
         class A(Document):
             name = StringField()
 

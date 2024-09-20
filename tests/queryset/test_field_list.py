@@ -4,6 +4,7 @@ import pytest
 
 from mongoengine import *
 from mongoengine.queryset import QueryFieldList
+from tests.fields.test_uuid_field import Person
 
 
 class TestQueryFieldList:
@@ -66,8 +67,8 @@ class TestQueryFieldList:
         assert q.as_dict() == {"a": {"$slice": 5}}
 
 
-class TestOnlyExcludeAll(unittest.TestCase):
-    def setUp(self):
+class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
         connect(db="mongoenginetest")
 
         class Person(Document):
@@ -75,7 +76,7 @@ class TestOnlyExcludeAll(unittest.TestCase):
             age = IntField()
             meta = {"allow_inheritance": True}
 
-        Person.drop_collection()
+        await Person.drop_collection()
         self.Person = Person
 
     def test_mixing_only_exclude(self):
@@ -147,24 +148,24 @@ class TestOnlyExcludeAll(unittest.TestCase):
         qs = MyDoc.objects.fields(a=1, b=0, slice__c=2)
         assert qs._loaded_fields.as_dict() == {"c": {"$slice": 2}, "a": 1}
 
-    def test_only(self):
+    async def test_only(self):
         """Ensure that QuerySet.only only returns the requested fields."""
         person = self.Person(name="test", age=25)
-        person.save()
+        await person.save()
 
-        obj = self.Person.objects.only("name").get()
+        obj = await self.Person.objects.only("name").get()
         assert obj.name == person.name
         assert obj.age is None
 
-        obj = self.Person.objects.only("age").get()
+        obj = await self.Person.objects.only("age").get()
         assert obj.name is None
         assert obj.age == person.age
 
-        obj = self.Person.objects.only("name", "age").get()
+        obj = await self.Person.objects.only("name", "age").get()
         assert obj.name == person.name
         assert obj.age == person.age
 
-        obj = self.Person.objects.only(*("id", "name")).get()
+        obj = await self.Person.objects.only(*("id", "name")).get()
         assert obj.name == person.name
         assert obj.age is None
 
@@ -173,17 +174,17 @@ class TestOnlyExcludeAll(unittest.TestCase):
             salary = IntField(db_field="wage")
 
         employee = Employee(name="test employee", age=40, salary=30000)
-        employee.save()
+        await employee.save()
 
-        obj = self.Person.objects(id=employee.id).only("age").get()
+        obj = await self.Person.objects(id=employee.id).only("age").get()
         assert isinstance(obj, Employee)
 
         # Check field names are looked up properly
-        obj = Employee.objects(id=employee.id).only("salary").get()
+        obj = await Employee.objects(id=employee.id).only("salary").get()
         assert obj.salary == employee.salary
         assert obj.name is None
 
-    def test_only_with_subfields(self):
+    async def test_only_with_subfields(self):
         class User(EmbeddedDocument):
             name = StringField()
             email = StringField()
@@ -201,7 +202,7 @@ class TestOnlyExcludeAll(unittest.TestCase):
             comments = ListField(EmbeddedDocumentField(Comment))
             various = MapField(field=EmbeddedDocumentField(VariousData))
 
-        BlogPost.drop_collection()
+        await BlogPost.drop_collection()
 
         post = BlogPost(
             content="Had a good coffee today...",
@@ -212,18 +213,18 @@ class TestOnlyExcludeAll(unittest.TestCase):
             Comment(title="I aggree", text="Great post!"),
             Comment(title="Coffee", text="I hate coffee"),
         ]
-        post.save()
+        await post.save()
 
-        obj = BlogPost.objects.only("author.name").get()
+        obj = await BlogPost.objects.only("author.name").get()
         assert obj.content is None
         assert obj.author.email is None
         assert obj.author.name == "Test User"
         assert obj.comments == []
 
-        obj = BlogPost.objects.only("various.test_dynamic.some").get()
+        obj = await BlogPost.objects.only("various.test_dynamic.some").get()
         assert obj.various["test_dynamic"].some is True
 
-        obj = BlogPost.objects.only("content", "comments.title").get()
+        obj = await BlogPost.objects.only("content", "comments.title").get()
         assert obj.content == "Had a good coffee today..."
         assert obj.author is None
         assert obj.comments[0].title == "I aggree"
@@ -231,7 +232,7 @@ class TestOnlyExcludeAll(unittest.TestCase):
         assert obj.comments[0].text is None
         assert obj.comments[1].text is None
 
-        obj = BlogPost.objects.only("comments").get()
+        obj = await BlogPost.objects.only("comments").get()
         assert obj.content is None
         assert obj.author is None
         assert obj.comments[0].title == "I aggree"
@@ -239,9 +240,9 @@ class TestOnlyExcludeAll(unittest.TestCase):
         assert obj.comments[0].text == "Great post!"
         assert obj.comments[1].text == "I hate coffee"
 
-        BlogPost.drop_collection()
+        await BlogPost.drop_collection()
 
-    def test_exclude(self):
+    async def test_exclude(self):
         class User(EmbeddedDocument):
             name = StringField()
             email = StringField()
@@ -255,7 +256,7 @@ class TestOnlyExcludeAll(unittest.TestCase):
             author = EmbeddedDocumentField(User)
             comments = ListField(EmbeddedDocumentField(Comment))
 
-        BlogPost.drop_collection()
+        await BlogPost.drop_collection()
 
         post = BlogPost(content="Had a good coffee today...")
         post.author = User(name="Test User")
@@ -263,17 +264,17 @@ class TestOnlyExcludeAll(unittest.TestCase):
             Comment(title="I aggree", text="Great post!"),
             Comment(title="Coffee", text="I hate coffee"),
         ]
-        post.save()
+        await post.save()
 
-        obj = BlogPost.objects.exclude("author", "comments.text").get()
+        obj = await BlogPost.objects.exclude("author", "comments.text").get()
         assert obj.author is None
         assert obj.content == "Had a good coffee today..."
         assert obj.comments[0].title == "I aggree"
         assert obj.comments[0].text is None
 
-        BlogPost.drop_collection()
+        await BlogPost.drop_collection()
 
-    def test_exclude_only_combining(self):
+    async def test_exclude_only_combining(self):
         class Attachment(EmbeddedDocument):
             name = StringField()
             content = StringField()
@@ -286,7 +287,7 @@ class TestOnlyExcludeAll(unittest.TestCase):
             content_type = StringField()
             attachments = ListField(EmbeddedDocumentField(Attachment))
 
-        Email.drop_collection()
+        await Email.drop_collection()
         email = Email(
             sender="me",
             to="you",
@@ -298,23 +299,23 @@ class TestOnlyExcludeAll(unittest.TestCase):
             Attachment(name="file1.doc", content="ABC"),
             Attachment(name="file2.doc", content="XYZ"),
         ]
-        email.save()
+        await email.save()
 
-        obj = Email.objects.exclude("content_type").exclude("body").get()
+        obj = await Email.objects.exclude("content_type").exclude("body").get()
         assert obj.sender == "me"
         assert obj.to == "you"
         assert obj.subject == "From Russia with Love"
         assert obj.body is None
         assert obj.content_type is None
 
-        obj = Email.objects.only("sender", "to").exclude("body", "sender").get()
+        obj = await Email.objects.only("sender", "to").exclude("body", "sender").get()
         assert obj.sender is None
         assert obj.to == "you"
         assert obj.subject is None
         assert obj.body is None
         assert obj.content_type is None
 
-        obj = (
+        obj = await (
             Email.objects.exclude("attachments.content")
             .exclude("body")
             .only("to", "attachments.name")
@@ -328,9 +329,9 @@ class TestOnlyExcludeAll(unittest.TestCase):
         assert obj.body is None
         assert obj.content_type is None
 
-        Email.drop_collection()
+        await Email.drop_collection()
 
-    def test_all_fields(self):
+    async def test_all_fields(self):
         class Email(Document):
             sender = StringField()
             to = StringField()
@@ -338,7 +339,7 @@ class TestOnlyExcludeAll(unittest.TestCase):
             body = StringField()
             content_type = StringField()
 
-        Email.drop_collection()
+        await Email.drop_collection()
 
         email = Email(
             sender="me",
@@ -347,58 +348,59 @@ class TestOnlyExcludeAll(unittest.TestCase):
             body="Hello!",
             content_type="text/plain",
         )
-        email.save()
+        await email.save()
 
-        obj = (
+        obj = await (
             Email.objects.exclude("content_type", "body")
             .only("to", "body")
             .all_fields()
             .get()
         )
+
         assert obj.sender == "me"
         assert obj.to == "you"
         assert obj.subject == "From Russia with Love"
         assert obj.body == "Hello!"
         assert obj.content_type == "text/plain"
 
-        Email.drop_collection()
+        await Email.drop_collection()
 
-    def test_slicing_fields(self):
+    async def test_slicing_fields(self):
         """Ensure that query slicing an array works."""
 
         class Numbers(Document):
             n = ListField(IntField())
 
-        Numbers.drop_collection()
+        await Numbers.drop_collection()
 
         numbers = Numbers(n=[0, 1, 2, 3, 4, 5, -5, -4, -3, -2, -1])
-        numbers.save()
+        await numbers.save()
 
         # first three
-        numbers = Numbers.objects.fields(slice__n=3).get()
+        numbers = await Numbers.objects.fields(slice__n=3).get()
         assert numbers.n == [0, 1, 2]
 
         # last three
-        numbers = Numbers.objects.fields(slice__n=-3).get()
+        numbers = await Numbers.objects.fields(slice__n=-3).get()
         assert numbers.n == [-3, -2, -1]
 
         # skip 2, limit 3
-        numbers = Numbers.objects.fields(slice__n=[2, 3]).get()
+        numbers = await Numbers.objects.fields(slice__n=[2, 3]).get()
         assert numbers.n == [2, 3, 4]
 
         # skip to fifth from last, limit 4
-        numbers = Numbers.objects.fields(slice__n=[-5, 4]).get()
+        numbers = await Numbers.objects.fields(slice__n=[-5, 4]).get()
         assert numbers.n == [-5, -4, -3, -2]
 
         # skip to fifth from last, limit 10
-        numbers = Numbers.objects.fields(slice__n=[-5, 10]).get()
+        numbers = await Numbers.objects.fields(slice__n=[-5, 10]).get()
         assert numbers.n == [-5, -4, -3, -2, -1]
 
         # skip to fifth from last, limit 10 dict method
-        numbers = Numbers.objects.fields(n={"$slice": [-5, 10]}).get()
+        numbers = await Numbers.objects.fields(n={"$slice": [-5, 10]}).get()
         assert numbers.n == [-5, -4, -3, -2, -1]
 
-    def test_slicing_nested_fields(self):
+    async def test_slicing_nested_fields(self):
         """Ensure that query slicing an embedded array works."""
 
         class EmbeddedNumber(EmbeddedDocument):
@@ -407,37 +409,37 @@ class TestOnlyExcludeAll(unittest.TestCase):
         class Numbers(Document):
             embedded = EmbeddedDocumentField(EmbeddedNumber)
 
-        Numbers.drop_collection()
+        await Numbers.drop_collection()
 
         numbers = Numbers()
         numbers.embedded = EmbeddedNumber(n=[0, 1, 2, 3, 4, 5, -5, -4, -3, -2, -1])
-        numbers.save()
+        await numbers.save()
 
         # first three
-        numbers = Numbers.objects.fields(slice__embedded__n=3).get()
+        numbers = await Numbers.objects.fields(slice__embedded__n=3).get()
         assert numbers.embedded.n == [0, 1, 2]
 
         # last three
-        numbers = Numbers.objects.fields(slice__embedded__n=-3).get()
+        numbers = await Numbers.objects.fields(slice__embedded__n=-3).get()
         assert numbers.embedded.n == [-3, -2, -1]
 
         # skip 2, limit 3
-        numbers = Numbers.objects.fields(slice__embedded__n=[2, 3]).get()
+        numbers = await Numbers.objects.fields(slice__embedded__n=[2, 3]).get()
         assert numbers.embedded.n == [2, 3, 4]
 
         # skip to fifth from last, limit 4
-        numbers = Numbers.objects.fields(slice__embedded__n=[-5, 4]).get()
+        numbers = await Numbers.objects.fields(slice__embedded__n=[-5, 4]).get()
         assert numbers.embedded.n == [-5, -4, -3, -2]
 
         # skip to fifth from last, limit 10
-        numbers = Numbers.objects.fields(slice__embedded__n=[-5, 10]).get()
+        numbers = await Numbers.objects.fields(slice__embedded__n=[-5, 10]).get()
         assert numbers.embedded.n == [-5, -4, -3, -2, -1]
 
         # skip to fifth from last, limit 10 dict method
-        numbers = Numbers.objects.fields(embedded__n={"$slice": [-5, 10]}).get()
+        numbers = await Numbers.objects.fields(embedded__n={"$slice": [-5, 10]}).get()
         assert numbers.embedded.n == [-5, -4, -3, -2, -1]
 
-    def test_exclude_from_subclasses_docs(self):
+    async def test_exclude_from_subclasses_docs(self):
         class Base(Document):
             username = StringField()
 
@@ -450,51 +452,51 @@ class TestOnlyExcludeAll(unittest.TestCase):
             password = StringField()
             wibble = StringField()
 
-        Base.drop_collection()
-        User(username="mongodb", password="secret").save()
+        await Base.drop_collection()
+        await User(username="mongodb", password="secret").save()
 
-        user = Base.objects().exclude("password", "wibble").first()
+        user = await Base.objects().exclude("password", "wibble").first()
         assert user.password is None
 
         with pytest.raises(LookUpError):
             Base.objects.exclude("made_up")
 
-    def test_gt_gte_lt_lte_ne_operator_with_list(self):
+    async def test_gt_gte_lt_lte_ne_operator_with_list(self):
         class Family(Document):
             ages = ListField(field=FloatField())
 
-        Family.drop_collection()
+        await Family.drop_collection()
 
-        Family(ages=[1.0, 2.0]).save()
-        Family(ages=[]).save()
+        await Family(ages=[1.0, 2.0]).save()
+        await Family(ages=[]).save()
 
-        qs = list(Family.objects(ages__gt=[1.0]))
+        qs = await Family.objects(ages__gt=[1.0]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == [1.0, 2.0]
 
-        qs = list(Family.objects(ages__gt=[1.0, 1.99]))
+        qs = await Family.objects(ages__gt=[1.0, 1.99]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == [1.0, 2.0]
 
-        qs = list(Family.objects(ages__gt=[]))
+        qs = await Family.objects(ages__gt=[]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == [1.0, 2.0]
 
-        qs = list(Family.objects(ages__gte=[1.0, 2.0]))
+        qs = await Family.objects(ages__gte=[1.0, 2.0]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == [1.0, 2.0]
 
-        qs = list(Family.objects(ages__lt=[1.0]))
+        qs = await Family.objects(ages__lt=[1.0]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == []
 
-        qs = list(Family.objects(ages__lte=[5.0]))
+        qs = await Family.objects(ages__lte=[5.0]).to_list()
         assert len(qs) == 2
 
-        qs = list(Family.objects(ages__ne=[5.0]))
+        qs = await Family.objects(ages__ne=[5.0]).to_list()
         assert len(qs) == 2
 
-        qs = list(Family.objects(ages__ne=[]))
+        qs = await Family.objects(ages__ne=[]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == [1.0, 2.0]
 

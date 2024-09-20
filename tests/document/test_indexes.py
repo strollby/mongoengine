@@ -1051,7 +1051,9 @@ class TestIndexes(unittest.TestCase):
                 "v"
             ]  # drop the index version - we don't care about that here
             if "ns" in index_info[key]:
-                del index_info[key][
+                del index_info[
+                    key
+                ][
                     "ns"
                 ]  # drop the index namespace - we don't care about that here, MongoDB 3+
 

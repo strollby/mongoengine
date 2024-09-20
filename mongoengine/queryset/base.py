@@ -3,11 +3,13 @@ import itertools
 import re
 import warnings
 from collections.abc import Mapping
+from inspect import iscoroutine
 
 import pymongo
 import pymongo.errors
 from bson import SON, json_util
 from bson.code import Code
+from pymongo.asynchronous.cursor import AsyncCursor
 from pymongo.collection import ReturnDocument
 from pymongo.common import validate_read_preference
 from pymongo.read_concern import ReadConcern
@@ -162,8 +164,35 @@ class BaseQuerySet:
         # forse load cursor
         # self._cursor
 
+    async def get_from_index(self, key):
+        queryset = self.clone()
+        queryset._empty = False
+        cursor: AsyncCursor = await queryset._cursor
+        cursor.skip(key)
+
+        try:
+            val = await anext(cursor)
+        except StopAsyncIteration:
+            raise IndexError
+
+        if queryset._scalar:
+            return queryset._get_scalar(
+                queryset._document._from_son(
+                    val,
+                    _auto_dereference=self._auto_dereference,
+                )
+            )
+
+        if queryset._as_pymongo:
+            return val
+
+        return queryset._document._from_son(
+            val,
+            _auto_dereference=self._auto_dereference,
+        )
+
     def __getitem__(self, key):
-        """Return a document instance corresponding to a given index if
+        """Return a queryset corresponding to a given index if
         the key is an integer. If the key is a slice, translate its
         bounds into a skip and a limit, and return a cloned queryset
         with that skip/limit applied. For example:
@@ -178,7 +207,6 @@ class BaseQuerySet:
 
         # Handle a slice
         if isinstance(key, slice):
-            queryset._cursor_obj = queryset._cursor[key]
             queryset._skip, queryset._limit = key.start, key.stop
             if key.start and key.stop:
                 queryset._limit = key.stop - key.start
@@ -190,31 +218,17 @@ class BaseQuerySet:
 
         # Handle an index
         elif isinstance(key, int):
-            if queryset._scalar:
-                return queryset._get_scalar(
-                    queryset._document._from_son(
-                        queryset._cursor[key],
-                        _auto_dereference=self._auto_dereference,
-                    )
-                )
-
-            if queryset._as_pymongo:
-                return queryset._cursor[key]
-
-            return queryset._document._from_son(
-                queryset._cursor[key],
-                _auto_dereference=self._auto_dereference,
-            )
+            raise Exception("Indexing is not supported, make use of .get() instead")
 
         raise TypeError("Provide a slice or an integer index")
 
     def __iter__(self):
         raise NotImplementedError
 
-    def _has_data(self):
+    async def _has_data(self):
         """Return True if cursor has any data."""
         queryset = self.order_by()
-        return False if queryset.first() is None else True
+        return False if await queryset.first() is None else True
 
     def __bool__(self):
         """Avoid to open all records in an if stmt in Py3."""
@@ -259,7 +273,7 @@ class BaseQuerySet:
 
         return queryset
 
-    def get(self, *q_objs, **query):
+    async def get(self, *q_objs, **query):
         """Retrieve the matching object raising
         :class:`~mongoengine.queryset.MultipleObjectsReturned` or
         `DocumentName.MultipleObjectsReturned` exception if multiple results
@@ -271,15 +285,15 @@ class BaseQuerySet:
         queryset = queryset.filter(*q_objs, **query)
 
         try:
-            result = next(queryset)
-        except StopIteration:
+            result = await anext(queryset)
+        except StopAsyncIteration:
             msg = "%s matching query does not exist." % queryset._document._class_name
             raise queryset._document.DoesNotExist(msg)
 
         try:
             # Check if there is another match
-            next(queryset)
-        except StopIteration:
+            await anext(queryset)
+        except StopAsyncIteration:
             return result
 
         # If we were able to retrieve a 2nd doc, raise the MultipleObjectsReturned exception.
@@ -287,23 +301,28 @@ class BaseQuerySet:
             "2 or more items returned, instead of 1"
         )
 
-    def create(self, **kwargs):
+    async def create(self, **kwargs):
         """Create new object. Returns the saved object instance."""
-        return self._document(**kwargs).save(force_insert=True)
+        return await self._document(**kwargs).save(force_insert=True)
 
-    def first(self):
+    async def first(self):
         """Retrieve the first object matching the query."""
         queryset = self.clone()
         if self._none or self._empty:
             return None
 
         try:
-            result = queryset[0]
+            cursor: AsyncCursor = await queryset._cursor
+            doc = await anext(cursor)
+            result = queryset._document._from_son(
+                doc,
+                _auto_dereference=self._auto_dereference,
+            )
         except IndexError:
             result = None
         return result
 
-    def insert(
+    async def insert(
         self, doc_or_docs, load_bulk=True, write_concern=None, signal_kwargs=None
     ):
         """bulk insert documents
@@ -350,14 +369,14 @@ class BaseQuerySet:
 
         raw = [doc.to_mongo() for doc in docs]
 
-        with set_write_concern(self._collection, write_concern) as collection:
+        with set_write_concern(await self._collection, write_concern) as collection:
             insert_func = collection.insert_many
             if return_one:
                 raw = raw[0]
                 insert_func = collection.insert_one
 
         try:
-            inserted_result = insert_func(raw, session=_get_session())
+            inserted_result = await insert_func(raw, session=_get_session())
             ids = (
                 [inserted_result.inserted_id]
                 if return_one
@@ -397,7 +416,7 @@ class BaseQuerySet:
         )
         return results[0] if return_one else results
 
-    def count(self, with_limit_and_skip=False):
+    async def count(self, with_limit_and_skip=False):
         """Count the selected elements in the query.
 
         :param with_limit_and_skip (optional): take any :meth:`limit` or
@@ -428,8 +447,9 @@ class BaseQuerySet:
         if self._collation:
             kwargs["collation"] = self._collation
 
-        count = count_documents(
-            collection=self._cursor.collection,
+        cursor = await self._cursor
+        count = await count_documents(
+            collection=cursor.collection,
             filter=self._query,
             **kwargs,
         )
@@ -437,7 +457,9 @@ class BaseQuerySet:
         self._cursor_obj = None
         return count
 
-    def delete(self, write_concern=None, _from_doc_delete=False, cascade_refs=None):
+    async def delete(
+        self, write_concern=None, _from_doc_delete=False, cascade_refs=None
+    ):
         """Delete the documents matched by the query.
 
         :param write_concern: Extra keyword arguments are passed down which
@@ -519,8 +541,10 @@ class BaseQuerySet:
                     write_concern=write_concern, **{"pull_all__%s" % field_name: self}
                 )
 
-        with set_write_concern(queryset._collection, write_concern) as collection:
-            result = collection.delete_many(queryset._query, session=_get_session())
+        with set_write_concern(await queryset._collection, write_concern) as collection:
+            result = await collection.delete_many(
+                queryset._query, session=_get_session()
+            )
 
             # If we're using an unack'd write concern, we don't really know how
             # many items have been deleted at this point, hence we only return
@@ -528,7 +552,7 @@ class BaseQuerySet:
             if result.acknowledged:
                 return result.deleted_count
 
-    def update(
+    async def update(
         self,
         upsert=False,
         multi=True,
@@ -583,13 +607,14 @@ class BaseQuerySet:
             else:
                 update["$set"] = {"_cls": queryset._document._class_name}
         try:
+            collection = await queryset._collection
             with set_read_write_concern(
-                queryset._collection, write_concern, read_concern
+                collection, write_concern, read_concern
             ) as collection:
                 update_func = collection.update_one
                 if multi:
                     update_func = collection.update_many
-                result = update_func(
+                result = await update_func(
                     query,
                     update,
                     upsert=upsert,
@@ -638,7 +663,7 @@ class BaseQuerySet:
             document = self._document.objects.with_id(atomic_update.upserted_id)
         return document
 
-    def update_one(
+    async def update_one(
         self,
         upsert=False,
         write_concern=None,
@@ -663,7 +688,7 @@ class BaseQuerySet:
             full_result
         :returns the number of updated documents (unless ``full_result`` is True)
         """
-        return self.update(
+        return await self.update(
             upsert=upsert,
             multi=False,
             write_concern=write_concern,
@@ -672,7 +697,7 @@ class BaseQuerySet:
             **update,
         )
 
-    def modify(
+    async def modify(
         self,
         upsert=False,
         full_response=False,
@@ -718,12 +743,14 @@ class BaseQuerySet:
             update = transform.update(queryset._document, **update)
         sort = queryset._ordering
 
+        collection = await queryset._collection
+
         try:
             if full_response:
                 msg = "With PyMongo 3+, it is not possible anymore to get the full response."
                 warnings.warn(msg, DeprecationWarning)
             if remove:
-                result = queryset._collection.find_one_and_delete(
+                result = await collection.find_one_and_delete(
                     query, sort=sort, session=_get_session(), **self._cursor_args
                 )
             else:
@@ -731,7 +758,7 @@ class BaseQuerySet:
                     return_doc = ReturnDocument.AFTER
                 else:
                     return_doc = ReturnDocument.BEFORE
-                result = queryset._collection.find_one_and_update(
+                result = await collection.find_one_and_update(
                     query,
                     update,
                     upsert=upsert,
@@ -755,7 +782,7 @@ class BaseQuerySet:
 
         return result
 
-    def with_id(self, object_id):
+    async def with_id(self, object_id):
         """Retrieve the object matching the id provided.  Uses `object_id` only
         and raises InvalidQueryError if a filter has been applied. Returns
         `None` if no document exists with that id.
@@ -766,9 +793,9 @@ class BaseQuerySet:
         if queryset._query_obj:
             msg = "Cannot use a filter whilst using `with_id`"
             raise InvalidQueryError(msg)
-        return queryset.filter(pk=object_id).first()
+        return await queryset.filter(pk=object_id).first()
 
-    def in_bulk(self, object_ids):
+    async def in_bulk(self, object_ids):
         """Retrieve a set of documents by their ids.
 
         :param object_ids: a list or tuple of ObjectId's
@@ -777,17 +804,18 @@ class BaseQuerySet:
         """
         doc_map = {}
 
-        docs = self._collection.find(
+        collection = await self._collection
+        docs = collection.find(
             {"_id": {"$in": object_ids}}, session=_get_session(), **self._cursor_args
         )
         if self._scalar:
-            for doc in docs:
+            async for doc in docs:
                 doc_map[doc["_id"]] = self._get_scalar(self._document._from_son(doc))
         elif self._as_pymongo:
-            for doc in docs:
+            async for doc in docs:
                 doc_map[doc["_id"]] = doc
         else:
-            for doc in docs:
+            async for doc in docs:
                 doc_map[doc["_id"]] = self._document._from_son(
                     doc,
                     _auto_dereference=self._auto_dereference,
@@ -873,12 +901,13 @@ class BaseQuerySet:
 
         new_qs.__auto_dereference = self._BaseQuerySet__auto_dereference
 
-        if self._cursor_obj:
-            new_qs._cursor_obj = self._cursor_obj.clone()
+        # TODO: investigate cursor copying error
+        # if self._cursor_obj:
+        #     new_qs._cursor_obj = self._cursor_obj.clone()
 
         return new_qs
 
-    def select_related(self, max_depth=1):
+    async def select_related(self, max_depth=1):
         """Handles dereferencing of :class:`~bson.dbref.DBRef` objects or
         :class:`~bson.object_id.ObjectId` a maximum depth in order to cut down
         the number queries to mongodb.
@@ -886,7 +915,7 @@ class BaseQuerySet:
         # Make select related work the same for querysets
         max_depth += 1
         queryset = self.clone()
-        return queryset._dereference(queryset, max_depth=max_depth)
+        return await queryset._dereference(queryset, max_depth=max_depth)
 
     def limit(self, n):
         """Limit the number of returned documents to `n`. This may also be
@@ -1340,7 +1369,7 @@ class BaseQuerySet:
         son_data = json_util.loads(json_data)
         return [self._document._from_son(data) for data in son_data]
 
-    def aggregate(self, pipeline, *suppl_pipeline, **kwargs):
+    async def aggregate(self, pipeline, *suppl_pipeline, **kwargs):
         """Perform an aggregate function based on your queryset params
 
         :param pipeline: list of aggregation commands,
@@ -1382,13 +1411,13 @@ class BaseQuerySet:
 
         final_pipeline = initial_pipeline + user_pipeline
 
-        collection = self._collection
+        collection = await self._collection
         if self._read_preference is not None or self._read_concern is not None:
-            collection = self._collection.with_options(
+            collection = collection.with_options(
                 read_preference=self._read_preference, read_concern=self._read_concern
             )
 
-        return collection.aggregate(
+        return await collection.aggregate(
             final_pipeline, cursor={}, session=_get_session(), **kwargs
         )
 
@@ -1652,12 +1681,12 @@ class BaseQuerySet:
 
     # Iterator helpers
 
-    def __next__(self):
+    async def __anext__(self):
         """Wrap the result in a :class:`~mongoengine.Document` object."""
         if self._none or self._empty:
-            raise StopIteration
+            raise StopAsyncIteration
 
-        raw_doc = next(self._cursor)
+        raw_doc = await anext(await self._cursor)
 
         if self._as_pymongo:
             return raw_doc
@@ -1672,18 +1701,21 @@ class BaseQuerySet:
 
         return doc
 
-    def rewind(self):
+    async def rewind(self):
         """Rewind the cursor to its unevaluated state."""
         self._iter = False
-        self._cursor.rewind()
+        cursor = await self._cursor
+        await cursor.rewind()
 
     # Properties
 
     @property
-    def _collection(self):
+    async def _collection(self):
         """Property that returns the collection object. This allows us to
         perform operations only if the collection is accessed.
         """
+        if iscoroutine(self._collection_obj):
+            self._collection_obj = await self._collection_obj
         return self._collection_obj
 
     @property
@@ -1715,23 +1747,25 @@ class BaseQuerySet:
         return cursor_args
 
     @property
-    def _cursor(self):
+    async def _cursor(self):
         """Return a PyMongo cursor object corresponding to this queryset."""
 
         # If _cursor_obj already exists, return it immediately.
         if self._cursor_obj is not None:
             return self._cursor_obj
 
+        collection = await self._collection
+
         # Create a new PyMongo cursor.
         # XXX In PyMongo 3+, we define the read preference on a collection
         # level, not a cursor level. Thus, we need to get a cloned collection
         # object using `with_options` first.
         if self._read_preference is not None or self._read_concern is not None:
-            self._cursor_obj = self._collection.with_options(
+            self._cursor_obj = collection.with_options(
                 read_preference=self._read_preference, read_concern=self._read_concern
             ).find(self._query, session=_get_session(), **self._cursor_args)
         else:
-            self._cursor_obj = self._collection.find(
+            self._cursor_obj = collection.find(
                 self._query, session=_get_session(), **self._cursor_args
             )
 
@@ -1831,9 +1865,7 @@ class BaseQuerySet:
                     emit(null, 1);
                 }}
             }}
-        """.format(
-            field=field
-        )
+        """.format(field=field)
         reduce_func = """
             function(key, values) {
                 var total = 0;
