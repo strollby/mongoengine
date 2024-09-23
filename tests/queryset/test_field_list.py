@@ -4,7 +4,6 @@ import pytest
 
 from mongoengine import *
 from mongoengine.queryset import QueryFieldList
-from tests.fields.test_uuid_field import Person
 
 
 class TestQueryFieldList:
@@ -79,7 +78,7 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         await Person.drop_collection()
         self.Person = Person
 
-    def test_mixing_only_exclude(self):
+    async def test_mixing_only_exclude(self):
         class MyDoc(Document):
             a = StringField()
             b = StringField()
@@ -92,26 +91,29 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         exclude = ["d", "e"]
         only = ["b", "c"]
 
-        qs = MyDoc.objects.fields(**{i: 1 for i in include})
+        qs = await MyDoc().get_queryset()
+        qs = qs.fields(**{i: 1 for i in include})
         assert qs._loaded_fields.as_dict() == {"a": 1, "b": 1, "c": 1, "d": 1, "e": 1}
         qs = qs.only(*only)
         assert qs._loaded_fields.as_dict() == {"b": 1, "c": 1}
         qs = qs.exclude(*exclude)
         assert qs._loaded_fields.as_dict() == {"b": 1, "c": 1}
 
-        qs = MyDoc.objects.fields(**{i: 1 for i in include})
+        qs = await MyDoc().get_queryset()
+        qs = qs.fields(**{i: 1 for i in include})
         qs = qs.exclude(*exclude)
         assert qs._loaded_fields.as_dict() == {"a": 1, "b": 1, "c": 1}
         qs = qs.only(*only)
         assert qs._loaded_fields.as_dict() == {"b": 1, "c": 1}
 
-        qs = MyDoc.objects.exclude(*exclude)
+        qs = await MyDoc().get_queryset()
+        qs = qs.exclude(*exclude)
         qs = qs.fields(**{i: 1 for i in include})
         assert qs._loaded_fields.as_dict() == {"a": 1, "b": 1, "c": 1}
         qs = qs.only(*only)
         assert qs._loaded_fields.as_dict() == {"b": 1, "c": 1}
 
-    def test_slicing(self):
+    async def test_slicing(self):
         class MyDoc(Document):
             a = ListField()
             b = ListField()
@@ -124,7 +126,8 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         exclude = ["d", "e"]
         only = ["b", "c"]
 
-        qs = MyDoc.objects.fields(**{i: 1 for i in include})
+        qs = await MyDoc().get_queryset()
+        qs = qs.fields(**{i: 1 for i in include})
         qs = qs.exclude(*exclude)
         qs = qs.only(*only)
         qs = qs.fields(slice__b=5)
@@ -139,13 +142,14 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         qs = qs.exclude("c")
         assert qs._loaded_fields.as_dict() == {"b": {"$slice": 5}}
 
-    def test_mix_slice_with_other_fields(self):
+    async def test_mix_slice_with_other_fields(self):
         class MyDoc(Document):
             a = ListField()
             b = ListField()
             c = ListField()
 
-        qs = MyDoc.objects.fields(a=1, b=0, slice__c=2)
+        qs = await MyDoc().get_queryset()
+        qs = qs.fields(a=1, b=0, slice__c=2)
         assert qs._loaded_fields.as_dict() == {"c": {"$slice": 2}, "a": 1}
 
     async def test_only(self):
@@ -153,19 +157,23 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         person = self.Person(name="test", age=25)
         await person.save()
 
-        obj = await self.Person.objects.only("name").get()
+        qs = await self.Person().get_queryset()
+        obj = await qs.only("name").get()
         assert obj.name == person.name
         assert obj.age is None
 
-        obj = await self.Person.objects.only("age").get()
+        qs = await self.Person().get_queryset()
+        obj = await qs.only("age").get()
         assert obj.name is None
         assert obj.age == person.age
 
-        obj = await self.Person.objects.only("name", "age").get()
+        qs = await self.Person().get_queryset()
+        obj = await qs.only("name", "age").get()
         assert obj.name == person.name
         assert obj.age == person.age
 
-        obj = await self.Person.objects.only(*("id", "name")).get()
+        qs = await self.Person().get_queryset()
+        obj = await qs.only(*("id", "name")).get()
         assert obj.name == person.name
         assert obj.age is None
 
@@ -176,11 +184,13 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         employee = Employee(name="test employee", age=40, salary=30000)
         await employee.save()
 
-        obj = await self.Person.objects(id=employee.id).only("age").get()
+        qs = await self.Person().get_queryset()
+        obj = await qs(id=employee.id).only("age").get()
         assert isinstance(obj, Employee)
 
         # Check field names are looked up properly
-        obj = await Employee.objects(id=employee.id).only("salary").get()
+        qs = await self.Person().get_queryset()
+        obj = await qs(id=employee.id).only("salary").get()
         assert obj.salary == employee.salary
         assert obj.name is None
 
@@ -215,16 +225,19 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         ]
         await post.save()
 
-        obj = await BlogPost.objects.only("author.name").get()
+        qs = await BlogPost().get_queryset()
+        obj = await qs.only("author.name").get()
         assert obj.content is None
         assert obj.author.email is None
         assert obj.author.name == "Test User"
         assert obj.comments == []
 
-        obj = await BlogPost.objects.only("various.test_dynamic.some").get()
+        qs = await BlogPost().get_queryset()
+        obj = await qs.only("various.test_dynamic.some").get()
         assert obj.various["test_dynamic"].some is True
 
-        obj = await BlogPost.objects.only("content", "comments.title").get()
+        qs = await BlogPost().get_queryset()
+        obj = await qs.only("content", "comments.title").get()
         assert obj.content == "Had a good coffee today..."
         assert obj.author is None
         assert obj.comments[0].title == "I aggree"
@@ -232,7 +245,8 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         assert obj.comments[0].text is None
         assert obj.comments[1].text is None
 
-        obj = await BlogPost.objects.only("comments").get()
+        qs = await BlogPost().get_queryset()
+        obj = await qs.only("comments").get()
         assert obj.content is None
         assert obj.author is None
         assert obj.comments[0].title == "I aggree"
@@ -266,7 +280,8 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         ]
         await post.save()
 
-        obj = await BlogPost.objects.exclude("author", "comments.text").get()
+        qs = await BlogPost().get_queryset()
+        obj = await qs.exclude("author", "comments.text").get()
         assert obj.author is None
         assert obj.content == "Had a good coffee today..."
         assert obj.comments[0].title == "I aggree"
@@ -301,22 +316,25 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         ]
         await email.save()
 
-        obj = await Email.objects.exclude("content_type").exclude("body").get()
+        qs = await Email().get_queryset()
+        obj = await qs.exclude("content_type").exclude("body").get()
         assert obj.sender == "me"
         assert obj.to == "you"
         assert obj.subject == "From Russia with Love"
         assert obj.body is None
         assert obj.content_type is None
 
-        obj = await Email.objects.only("sender", "to").exclude("body", "sender").get()
+        qs = await Email().get_queryset()
+        obj = await qs.only("sender", "to").exclude("body", "sender").get()
         assert obj.sender is None
         assert obj.to == "you"
         assert obj.subject is None
         assert obj.body is None
         assert obj.content_type is None
 
+        qs = await Email().get_queryset()
         obj = await (
-            Email.objects.exclude("attachments.content")
+            qs.exclude("attachments.content")
             .exclude("body")
             .only("to", "attachments.name")
             .get()
@@ -350,8 +368,9 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         )
         await email.save()
 
+        qs = await Email().get_queryset()
         obj = await (
-            Email.objects.exclude("content_type", "body")
+            qs.exclude("content_type", "body")
             .only("to", "body")
             .all_fields()
             .get()
@@ -377,27 +396,33 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         await numbers.save()
 
         # first three
-        numbers = await Numbers.objects.fields(slice__n=3).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(slice__n=3).get()
         assert numbers.n == [0, 1, 2]
 
         # last three
-        numbers = await Numbers.objects.fields(slice__n=-3).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(slice__n=-3).get()
         assert numbers.n == [-3, -2, -1]
 
         # skip 2, limit 3
-        numbers = await Numbers.objects.fields(slice__n=[2, 3]).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(slice__n=[2, 3]).get()
         assert numbers.n == [2, 3, 4]
 
         # skip to fifth from last, limit 4
-        numbers = await Numbers.objects.fields(slice__n=[-5, 4]).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(slice__n=[-5, 4]).get()
         assert numbers.n == [-5, -4, -3, -2]
 
         # skip to fifth from last, limit 10
-        numbers = await Numbers.objects.fields(slice__n=[-5, 10]).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(slice__n=[-5, 10]).get()
         assert numbers.n == [-5, -4, -3, -2, -1]
 
         # skip to fifth from last, limit 10 dict method
-        numbers = await Numbers.objects.fields(n={"$slice": [-5, 10]}).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(n={"$slice": [-5, 10]}).get()
         assert numbers.n == [-5, -4, -3, -2, -1]
 
     async def test_slicing_nested_fields(self):
@@ -416,27 +441,33 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         await numbers.save()
 
         # first three
-        numbers = await Numbers.objects.fields(slice__embedded__n=3).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(slice__embedded__n=3).get()
         assert numbers.embedded.n == [0, 1, 2]
 
         # last three
-        numbers = await Numbers.objects.fields(slice__embedded__n=-3).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(slice__embedded__n=-3).get()
         assert numbers.embedded.n == [-3, -2, -1]
 
         # skip 2, limit 3
-        numbers = await Numbers.objects.fields(slice__embedded__n=[2, 3]).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(slice__embedded__n=[2, 3]).get()
         assert numbers.embedded.n == [2, 3, 4]
 
         # skip to fifth from last, limit 4
-        numbers = await Numbers.objects.fields(slice__embedded__n=[-5, 4]).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(slice__embedded__n=[-5, 4]).get()
         assert numbers.embedded.n == [-5, -4, -3, -2]
 
         # skip to fifth from last, limit 10
-        numbers = await Numbers.objects.fields(slice__embedded__n=[-5, 10]).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(slice__embedded__n=[-5, 10]).get()
         assert numbers.embedded.n == [-5, -4, -3, -2, -1]
 
         # skip to fifth from last, limit 10 dict method
-        numbers = await Numbers.objects.fields(embedded__n={"$slice": [-5, 10]}).get()
+        qs = await Numbers().get_queryset()
+        numbers = await qs.fields(embedded__n={"$slice": [-5, 10]}).get()
         assert numbers.embedded.n == [-5, -4, -3, -2, -1]
 
     async def test_exclude_from_subclasses_docs(self):
@@ -455,11 +486,13 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         await Base.drop_collection()
         await User(username="mongodb", password="secret").save()
 
-        user = await Base.objects().exclude("password", "wibble").first()
+        qs = await Base().get_queryset()
+        user = await qs().exclude("password", "wibble").first()
         assert user.password is None
 
         with pytest.raises(LookUpError):
-            Base.objects.exclude("made_up")
+            qs = await Base().get_queryset()
+            qs.exclude("made_up")
 
     async def test_gt_gte_lt_lte_ne_operator_with_list(self):
         class Family(Document):
@@ -470,33 +503,41 @@ class TestOnlyExcludeAll(unittest.IsolatedAsyncioTestCase):
         await Family(ages=[1.0, 2.0]).save()
         await Family(ages=[]).save()
 
-        qs = await Family.objects(ages__gt=[1.0]).to_list()
+        qs = await Family().get_queryset()
+        qs = await qs(ages__gt=[1.0]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == [1.0, 2.0]
 
-        qs = await Family.objects(ages__gt=[1.0, 1.99]).to_list()
+        qs = await Family().get_queryset()
+        qs = await qs(ages__gt=[1.0, 1.99]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == [1.0, 2.0]
 
-        qs = await Family.objects(ages__gt=[]).to_list()
+        qs = await Family().get_queryset()
+        qs = await qs(ages__gt=[]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == [1.0, 2.0]
 
-        qs = await Family.objects(ages__gte=[1.0, 2.0]).to_list()
+        qs = await Family().get_queryset()
+        qs = await qs(ages__gte=[1.0, 2.0]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == [1.0, 2.0]
 
-        qs = await Family.objects(ages__lt=[1.0]).to_list()
+        qs = await Family().get_queryset()
+        qs = await qs(ages__lt=[1.0]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == []
 
-        qs = await Family.objects(ages__lte=[5.0]).to_list()
+        qs = await Family().get_queryset()
+        qs = await qs(ages__lte=[5.0]).to_list()
         assert len(qs) == 2
 
-        qs = await Family.objects(ages__ne=[5.0]).to_list()
+        qs = await Family().get_queryset()
+        qs = await qs(ages__ne=[5.0]).to_list()
         assert len(qs) == 2
 
-        qs = await Family.objects(ages__ne=[]).to_list()
+        qs = await Family().get_queryset()
+        qs = await qs(ages__ne=[]).to_list()
         assert len(qs) == 1
         assert qs[0].ages == [1.0, 2.0]
 
