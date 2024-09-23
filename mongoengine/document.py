@@ -344,7 +344,8 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         # Need to add shard key to query, or you get an error
         query.update(self._object_key)
 
-        updated = await self._qs.modify(new=True, **update)
+        qs = await self._qs
+        updated = await qs.modify(new=True, **update)
         if updated is None:
             return False
 
@@ -622,11 +623,13 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
                 ref._changed_fields = []
 
     @property
-    def _qs(self):
+    async def _qs(self):
         """Return the default queryset corresponding to this document."""
         if not hasattr(self, "__objects"):
             queryset_class = self._meta.get("queryset_class", QuerySet)
-            self.__objects = queryset_class(self.__class__, self._get_collection())
+            self.__objects = queryset_class(
+                self.__class__, await self._get_collection()
+            )
         return self.__objects
 
     @property
@@ -658,17 +661,18 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         Raises :class:`OperationError` if called on an object that has not yet
         been saved.
         """
+        qs = await self._qs
         if self.pk is None:
             if kwargs.get("upsert", False):
                 query = self.to_mongo()
                 if "_cls" in query:
                     del query["_cls"]
-                return await self._qs.filter(**query).update_one(**kwargs)
+                return qs.filter(**query).update_one(**kwargs)
             else:
                 raise OperationError("attempt to update a document not yet saved")
 
         # Need to add shard key to query, or you get an error
-        return await self._qs.filter(**self._object_key).update_one(**kwargs)
+        return await qs.filter(**self._object_key).update_one(**kwargs)
 
     async def delete(self, signal_kwargs=None, **write_concern):
         """Delete the :class:`~mongoengine.Document` from the database. This
@@ -692,7 +696,8 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
                 getattr(self, name).delete()
 
         try:
-            await self._qs.filter(**self._object_key).delete(
+            qs = await self._qs
+            await qs.filter(**self._object_key).delete(
                 write_concern=write_concern, _from_doc_delete=True
             )
         except pymongo.errors.OperationFailure as err:
@@ -783,8 +788,9 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         if self.pk is None:
             raise self.DoesNotExist("Document does not exist")
 
+        qs = await self._qs
         obj = await (
-            self._qs.read_preference(ReadPreference.PRIMARY)
+            qs.read_preference(ReadPreference.PRIMARY)
             .filter(**self._object_key)
             .only(*fields)
             .limit(1)
@@ -1062,6 +1068,10 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
                 missing.remove([("_cls", 1)])
 
         return {"missing": missing, "extra": extra}
+
+    async def get_queryset(self) -> QuerySet:
+        return QuerySet(self.__class__, await self._get_collection())
+        # return await self._qs
 
 
 class DynamicDocument(Document, metaclass=TopLevelDocumentMetaclass):

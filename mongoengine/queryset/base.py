@@ -3,7 +3,6 @@ import itertools
 import re
 import warnings
 from collections.abc import Mapping
-from inspect import iscoroutine
 
 import pymongo
 import pymongo.errors
@@ -369,7 +368,7 @@ class BaseQuerySet:
 
         raw = [doc.to_mongo() for doc in docs]
 
-        with set_write_concern(await self._collection, write_concern) as collection:
+        with set_write_concern(self._collection, write_concern) as collection:
             insert_func = collection.insert_many
             if return_one:
                 raw = raw[0]
@@ -607,9 +606,8 @@ class BaseQuerySet:
             else:
                 update["$set"] = {"_cls": queryset._document._class_name}
         try:
-            collection = await queryset._collection
             with set_read_write_concern(
-                collection, write_concern, read_concern
+                self._collection, write_concern, read_concern
             ) as collection:
                 update_func = collection.update_one
                 if multi:
@@ -743,14 +741,12 @@ class BaseQuerySet:
             update = transform.update(queryset._document, **update)
         sort = queryset._ordering
 
-        collection = await queryset._collection
-
         try:
             if full_response:
                 msg = "With PyMongo 3+, it is not possible anymore to get the full response."
                 warnings.warn(msg, DeprecationWarning)
             if remove:
-                result = await collection.find_one_and_delete(
+                result = await self._collection.find_one_and_delete(
                     query, sort=sort, session=_get_session(), **self._cursor_args
                 )
             else:
@@ -758,7 +754,7 @@ class BaseQuerySet:
                     return_doc = ReturnDocument.AFTER
                 else:
                     return_doc = ReturnDocument.BEFORE
-                result = await collection.find_one_and_update(
+                result = await self._collection.find_one_and_update(
                     query,
                     update,
                     upsert=upsert,
@@ -804,8 +800,7 @@ class BaseQuerySet:
         """
         doc_map = {}
 
-        collection = await self._collection
-        docs = collection.find(
+        docs = self._collection.find(
             {"_id": {"$in": object_ids}}, session=_get_session(), **self._cursor_args
         )
         if self._scalar:
@@ -1411,11 +1406,11 @@ class BaseQuerySet:
 
         final_pipeline = initial_pipeline + user_pipeline
 
-        collection = await self._collection
-        if self._read_preference is not None or self._read_concern is not None:
-            collection = collection.with_options(
-                read_preference=self._read_preference, read_concern=self._read_concern
-            )
+        # if self._read_preference is not None or self._read_concern is not None: # TODO: why is this not working idk
+        #  why
+        collection = self._collection.with_options(
+            read_preference=self._read_preference, read_concern=self._read_concern
+        )
 
         return await collection.aggregate(
             final_pipeline, cursor={}, session=_get_session(), **kwargs
@@ -1710,12 +1705,10 @@ class BaseQuerySet:
     # Properties
 
     @property
-    async def _collection(self):
+    def _collection(self):
         """Property that returns the collection object. This allows us to
         perform operations only if the collection is accessed.
         """
-        if iscoroutine(self._collection_obj):
-            self._collection_obj = await self._collection_obj
         return self._collection_obj
 
     @property
@@ -1754,18 +1747,16 @@ class BaseQuerySet:
         if self._cursor_obj is not None:
             return self._cursor_obj
 
-        collection = await self._collection
-
         # Create a new PyMongo cursor.
         # XXX In PyMongo 3+, we define the read preference on a collection
         # level, not a cursor level. Thus, we need to get a cloned collection
         # object using `with_options` first.
         if self._read_preference is not None or self._read_concern is not None:
-            self._cursor_obj = collection.with_options(
+            self._cursor_obj = self._collection.with_options(
                 read_preference=self._read_preference, read_concern=self._read_concern
             ).find(self._query, session=_get_session(), **self._cursor_args)
         else:
-            self._cursor_obj = collection.find(
+            self._cursor_obj = self._collection.find(
                 self._query, session=_get_session(), **self._cursor_args
             )
 

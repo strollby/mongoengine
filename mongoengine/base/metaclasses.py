@@ -1,6 +1,7 @@
 import itertools
 import warnings
 
+# from mongoengine import QuerySetManager
 from mongoengine.base.common import _document_registry
 from mongoengine.base.fields import (
     BaseField,
@@ -13,7 +14,6 @@ from mongoengine.queryset import (
     DO_NOTHING,
     DoesNotExist,
     MultipleObjectsReturned,
-    QuerySetManager,
 )
 
 __all__ = ("DocumentMetaclass", "TopLevelDocumentMetaclass")
@@ -374,8 +374,8 @@ class TopLevelDocumentMetaclass(DocumentMetaclass):
             new_class._meta["collection"] = collection(new_class)
 
         # Provide a default queryset unless exists or one has been set
-        if "objects" not in dir(new_class):
-            new_class.objects = QuerySetManager()
+        # if "objects" not in dir(new_class):
+        #     new_class.objects = QuerySetManager()
 
         # Validate the fields and set primary key if needed
         for field_name, field in new_class._fields.items():

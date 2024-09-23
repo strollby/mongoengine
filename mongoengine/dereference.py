@@ -264,7 +264,7 @@ class DeReference:
                         doc = doc_type._from_son(ref)
                         object_map[(collection, doc.id)] = doc
                 else:
-                    references = get_db()[collection].find(
+                    references = get_db()[str(collection)].find(
                         {"_id": {"$in": refs}}, session=_get_session()
                     )
                     async for ref in references:
