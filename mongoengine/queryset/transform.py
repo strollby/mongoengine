@@ -504,7 +504,7 @@ def _infer_geometry(value):
     )
 
 
-async def _prepare_query_for_iterable(field, op, value):
+def _prepare_query_for_iterable(field, op, value):
     # We need a special check for BaseDocument, because - although it's iterable - using
     # it as such in the context of this method is most definitely a mistake.
     BaseDocument = _import_class("BaseDocument")

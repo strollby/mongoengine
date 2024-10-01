@@ -42,15 +42,17 @@ class QuerySet(BaseQuerySet):
         If ``self._has_more`` the cursor hasn't been exhausted so cache then
         batch. Otherwise iterate the result_cache.
         """
-        return self
+        # if not self._has_more:
+        #     return iter(self._result_cache)
+        # return self
         # TODO: make use of result cache
-        # self._iter = True
-        #
-        # if self._has_more:
-        #     return self._iter_results()
-        #
-        # # iterating over the cache.
-        # return iter(self._result_cache)
+        self._iter = True
+
+        if self._has_more:
+            return self._iter_results()
+
+        # iterating over the cache.
+        return iter(self._result_cache)
 
     def __len__(self):
         """Since __len__ is called quite frequently (for example, as part of

@@ -246,7 +246,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         collection_name = cls._get_collection_name()
 
         # Get max document limit and max byte size from meta.
-        max_size = cls._meta.get("max_size") or 10 * 2**20  # 10MB default
+        max_size = cls._meta.get("max_size") or 10 * 2 ** 20  # 10MB default
         max_documents = cls._meta.get("max_documents")
 
         # MongoDB will automatically raise the size to make it a multiple of
@@ -258,7 +258,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         # If the collection already exists and has different options
         # (i.e. isn't capped or has different max/size), raise an error.
         if collection_name in list_collection_names(
-            db, include_system_collections=True
+                db, include_system_collections=True
         ):
             collection = db[collection_name]
             options = collection.options()
@@ -285,7 +285,7 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         timeseries_opts = cls._meta.get("timeseries")
 
         if collection_name in list_collection_names(
-            db, include_system_collections=True
+                db, include_system_collections=True
         ):
             collection = db[collection_name]
             collection.options()
@@ -358,17 +358,17 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         return True
 
     async def save(
-        self,
-        force_insert=False,
-        validate=True,
-        clean=True,
-        write_concern=None,
-        cascade=None,
-        cascade_kwargs=None,
-        _refs=None,
-        save_condition=None,
-        signal_kwargs=None,
-        **kwargs,
+            self,
+            force_insert=False,
+            validate=True,
+            clean=True,
+            write_concern=None,
+            cascade=None,
+            cascade_kwargs=None,
+            _refs=None,
+            save_condition=None,
+            signal_kwargs=None,
+            **kwargs,
     ):
         """Save the :class:`~mongoengine.Document` to the database. If the
         document already exists, it will be updated, otherwise it will be
@@ -856,15 +856,15 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         object.
         """
         classes = [
-            get_document(class_name)
-            for class_name in cls._subclasses
-            if class_name != cls.__name__
-        ] + [cls]
+                      get_document(class_name)
+                      for class_name in cls._subclasses
+                      if class_name != cls.__name__
+                  ] + [cls]
         documents = [
-            get_document(class_name)
-            for class_name in document_cls._subclasses
-            if class_name != document_cls.__name__
-        ] + [document_cls]
+                        get_document(class_name)
+                        for class_name in document_cls._subclasses
+                        if class_name != document_cls.__name__
+                    ] + [document_cls]
 
         for klass in classes:
             for document_cls in documents:
@@ -989,21 +989,21 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
 
             for base_cls in cls.__bases__:
                 if (
-                    isinstance(base_cls, TopLevelDocumentMetaclass)
-                    and base_cls != Document
-                    and not base_cls._meta.get("abstract")
-                    and base_cls._get_collection().full_name
-                    == cls._get_collection().full_name
-                    and base_cls not in classes
+                        isinstance(base_cls, TopLevelDocumentMetaclass)
+                        and base_cls != Document
+                        and not base_cls._meta.get("abstract")
+                        and base_cls._get_collection().full_name
+                        == cls._get_collection().full_name
+                        and base_cls not in classes
                 ):
                     classes.append(base_cls)
                     get_classes(base_cls)
             for subclass in cls.__subclasses__():
                 if (
-                    isinstance(base_cls, TopLevelDocumentMetaclass)
-                    and subclass._get_collection().full_name
-                    == cls._get_collection().full_name
-                    and subclass not in classes
+                        isinstance(base_cls, TopLevelDocumentMetaclass)
+                        and subclass._get_collection().full_name
+                        == cls._get_collection().full_name
+                        and subclass not in classes
                 ):
                     classes.append(subclass)
                     get_classes(subclass)
@@ -1069,7 +1069,9 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
 
         return {"missing": missing, "extra": extra}
 
-    async def get_queryset(self) -> QuerySet:
+    @classmethod
+    async def get_queryset(cls) -> QuerySet:
+        self = cls()
         return QuerySet(self.__class__, await self._get_collection())
         # return await self._qs
 
