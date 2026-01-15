@@ -1,4 +1,6 @@
 import asyncio
+from asyncio import AbstractEventLoop
+from typing import Callable
 
 from pytest_benchmark.fixture import BenchmarkFixture
 
@@ -59,7 +61,7 @@ class TestBasicDocOps:
         await async_disconnect()
 
     @staticmethod
-    def book_doc():
+    def book_doc() -> Book:
         return Book(
             name="Always be closing",
             pages=100,
@@ -68,11 +70,11 @@ class TestBasicDocOps:
             author_email="alec@example.com",
         )
 
-    def async_benchmark(self, benchmark, func):
-        async_loop = asyncio.new_event_loop()
+    def async_benchmark(self, benchmark: BenchmarkFixture, func: Callable):
+        async_loop: AbstractEventLoop = asyncio.new_event_loop()
         async_loop.run_until_complete(self.connect())
 
-        def run(event_loop):
+        def run(event_loop: AbstractEventLoop):
             return event_loop.run_until_complete(
                 func()
             )
@@ -84,16 +86,16 @@ class TestBasicDocOps:
         doc = await self.book_doc().asave()
         await doc.adelete()
 
-    def test_doc_to_mongo(self, benchmark):
+    def test_doc_to_mongo(self, benchmark: BenchmarkFixture):
         benchmark(lambda: self.book_doc().to_mongo())
 
     def test_doc_create(self, benchmark: BenchmarkFixture):
         benchmark(lambda: self.book_doc())
 
-    def test_doc_save_and_delete(self, benchmark):
+    def test_doc_save_and_delete(self, benchmark: BenchmarkFixture):
         self.async_benchmark(benchmark, lambda: self.doc_save_and_delete())
 
-    def test_doc_validate(self, benchmark):
+    def test_doc_validate(self, benchmark: BenchmarkFixture):
         benchmark(lambda: self.book_doc())
 
 
@@ -117,6 +119,7 @@ class TestBasicLargeDocOps:
         cls.loop.run_until_complete(cls.connect())
         cls.loop.run_until_complete(cls.drop_collections())
         cls.loop.run_until_complete(cls.disconnect())
+
     @staticmethod
     async def connect():
         await async_connect(db="testDB")
@@ -126,7 +129,7 @@ class TestBasicLargeDocOps:
         await async_disconnect()
 
     @staticmethod
-    def company_doc():
+    def company_doc() -> Company:
         return Company(
             name="MongoDB, Inc.",
             contacts=[
@@ -135,11 +138,11 @@ class TestBasicLargeDocOps:
             ],
         )
 
-    def async_benchmark(self, benchmark, func):
-        async_loop = asyncio.new_event_loop()
+    def async_benchmark(self, benchmark: BenchmarkFixture, func: Callable):
+        async_loop: AbstractEventLoop = asyncio.new_event_loop()
         async_loop.run_until_complete(self.connect())
 
-        def run(event_loop):
+        def run(event_loop: AbstractEventLoop):
             return event_loop.run_until_complete(
                 func()
             )
@@ -151,14 +154,14 @@ class TestBasicLargeDocOps:
         doc = await self.company_doc().asave()
         await doc.adelete()
 
-    def test_big_doc_to_mongo(self, benchmark):
+    def test_big_doc_to_mongo(self, benchmark: BenchmarkFixture):
         benchmark(lambda: self.company_doc().to_mongo())
 
     def test_big_doc_create(self, benchmark: BenchmarkFixture):
         benchmark(lambda: self.company_doc())
 
-    def test_big_doc_save_and_delete(self, benchmark):
+    def test_big_doc_save_and_delete(self, benchmark: BenchmarkFixture):
         self.async_benchmark(benchmark, lambda: self.big_doc_save_and_delete())
 
-    def test_big_doc_validate(self, benchmark):
+    def test_big_doc_validate(self, benchmark: BenchmarkFixture):
         benchmark(lambda: self.company_doc())

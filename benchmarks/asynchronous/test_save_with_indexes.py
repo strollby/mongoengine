@@ -1,4 +1,8 @@
 import asyncio
+from asyncio import AbstractEventLoop
+from typing import Callable
+
+from pytest_benchmark.fixture import BenchmarkFixture
 
 from mongoengine import Document, IntField, StringField
 from mongoengine import async_connect, async_disconnect
@@ -52,7 +56,6 @@ class TestSaveWithIndexes:
         cls.loop.run_until_complete(cls.drop_collections())
         cls.loop.run_until_complete(cls.disconnect())
 
-
     @classmethod
     def teardown_class(cls):
         cls.loop = asyncio.new_event_loop()
@@ -69,11 +72,11 @@ class TestSaveWithIndexes:
     async def disconnect():
         await async_disconnect()
 
-    def async_benchmark(self, benchmark, func):
-        async_loop = asyncio.new_event_loop()
+    def async_benchmark(self, benchmark: BenchmarkFixture, func: Callable):
+        async_loop: AbstractEventLoop = asyncio.new_event_loop()
         async_loop.run_until_complete(self.connect())
 
-        def run(event_loop):
+        def run(event_loop: AbstractEventLoop):
             return event_loop.run_until_complete(
                 func()
             )
@@ -81,17 +84,17 @@ class TestSaveWithIndexes:
         benchmark(run, async_loop)
         async_loop.run_until_complete(self.disconnect())
 
-    def test_doc_without_index(self, benchmark):
+    def test_doc_without_index(self, benchmark: BenchmarkFixture):
         self.async_benchmark(benchmark, lambda: User0(name="Nunu", age=9).asave())
 
-    def test_doc_with_1_index(self, benchmark):
+    def test_doc_with_1_index(self, benchmark: BenchmarkFixture):
         self.async_benchmark(benchmark, lambda: User1(name="Nunu", age=9).asave())
 
-    def test_doc_with_2_index(self, benchmark):
+    def test_doc_with_2_index(self, benchmark: BenchmarkFixture):
         self.async_benchmark(benchmark, lambda: User2(name="Nunu", age=9).asave())
 
-    def test_doc_with_1_auto_created_index(self, benchmark):
+    def test_doc_with_1_auto_created_index(self, benchmark: BenchmarkFixture):
         self.async_benchmark(benchmark, lambda: User3(name="Nunu", age=9).asave())
 
-    def test_doc_with_2_auto_created_index(self, benchmark):
+    def test_doc_with_2_auto_created_index(self, benchmark: BenchmarkFixture):
         self.async_benchmark(benchmark, lambda: User4(name="Nunu", age=9).asave())
