@@ -1811,17 +1811,13 @@ class ImageGridFsProxy(GridFSProxy):
             raise ValidationError("Invalid image: %s" % e)
 
         # Progressive JPEG
-        # TODO: fixme, at least unused, at worst bad implementation
         progressive = img.info.get("progressive") or False
-
         if (
-                kwargs.get("progressive")
+                kwargs.get("progressive") is not None
                 and isinstance(kwargs.get("progressive"), bool)
                 and img_format == "JPEG"
         ):
-            progressive = True
-        else:
-            progressive = False
+            progressive = kwargs.get("progressive")
 
         if field.size and (
                 img.size[0] > field.size["width"] or img.size[1] > field.size["height"]
@@ -1875,17 +1871,13 @@ class ImageGridFsProxy(GridFSProxy):
             raise ValidationError("Invalid image: %s" % e)
 
         # Progressive JPEG
-        # TODO: fixme, at least unused, at worst bad implementation
         progressive = img.info.get("progressive") or False
-
         if (
-                kwargs.get("progressive")
+                kwargs.get("progressive") is not None
                 and isinstance(kwargs.get("progressive"), bool)
                 and img_format == "JPEG"
         ):
-            progressive = True
-        else:
-            progressive = False
+            progressive = kwargs.get("progressive")
 
         if field.size and (
                 img.size[0] > field.size["width"] or img.size[1] > field.size["height"]
