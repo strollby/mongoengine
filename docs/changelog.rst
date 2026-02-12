@@ -7,6 +7,7 @@ Changelog
 Development
 ===========
 - (Fill this out as you fix issues and develop your features).
+- Fix: preserve and allow explicit control of progressive JPEGs in ImageField put/aput (#<PR_NUMBER>, @barashsharma)
 
 Changes in 0.30.0
 =================
