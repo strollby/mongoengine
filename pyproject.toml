@@ -1,6 +1,6 @@
 [project]
 name = "mongoengine"
-version = "0.30.0"
+version = "0.29.0"
 description = "MongoEngine is a Python Object-Document Mapper for working with MongoDB."
 authors = [
     { name = "Harry Marr", email = "harry.marr@gmail.com" }
@@ -33,20 +33,13 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "pymongo (>=4.14,<5.0)",
+    "pymongo (>=4.13,<5.0)",
 ]
 
 [dependency-groups]
 dev = [
     "ruff (>=0.14)",
     "pre-commit (>=4.5)"
-]
-docs = [
-    "docutils==0.21.2",
-    "jinja2==3.1.6",
-    "readthedocs-sphinx-ext==2.2.5",
-    "sphinx==7.4.7",
-    "sphinx-rtd-theme==3.0.2",
 ]
 test = [
     "pytest (>=9.0)",
