@@ -53,6 +53,7 @@ class StageBuilder:
             tree=tree,
             buckets=buckets,
             embedded_list_path=embedded_list_path,
+            list_chain=None,
             interleave=interleave,
             hydrate_tree=hydrate_tree or {},
         )
@@ -69,6 +70,7 @@ class StageBuilder:
         tree: dict,
         buckets: dict | None,
         embedded_list_path=None,
+        list_chain: list[str] | None = None,
         interleave: bool = False,
         hydrate_tree: dict | None = None,
     ):
@@ -128,6 +130,7 @@ class StageBuilder:
                         target_cls=target,
                         field_shape=field,
                         list_path=embedded_list_path,
+                        list_chain=list_chain or [embedded_list_path],
                         embedded_key=field.db_field,
                         foreign_match=foreign_match,
                         hydrate=hydrate_effective,
@@ -170,9 +173,10 @@ class StageBuilder:
                         f"{full_path}.",
                         subtree,
                         buckets,
-                        embedded_list_path,
-                        interleave,
-                        subtree_hydrate_tree,
+                        embedded_list_path=embedded_list_path,
+                        list_chain=list_chain,
+                        interleave=interleave,
+                        hydrate_tree=subtree_hydrate_tree,
                     )
 
                 if preserve_orig:
@@ -186,12 +190,19 @@ class StageBuilder:
                 if Schema.is_list_of_embedded(field):
                     embedded_doc = Schema.embedded_doc_type(field)
                     if subtree and embedded_doc:
+                        relative_segment = (
+                            full_path[len(embedded_list_path) + 1 :]
+                            if embedded_list_path
+                            else full_path
+                        )
+                        new_list_chain = (list_chain or []) + [relative_segment]
                         self._walk_lookups(
                             embedded_doc,
                             f"{full_path}.",
                             subtree,
                             buckets,
                             embedded_list_path=full_path,
+                            list_chain=new_list_chain,
                             interleave=interleave,
                             hydrate_tree=subtree_hydrate_tree,
                         )
@@ -214,6 +225,7 @@ class StageBuilder:
                             target_cls=target,
                             field_shape=field,
                             list_path=embedded_list_path,
+                            list_chain=list_chain or [embedded_list_path],
                             embedded_key=field.db_field,
                             foreign_match=foreign_match,
                             hydrate=hydrate_effective,
@@ -251,9 +263,10 @@ class StageBuilder:
                             f"{full_path}.",
                             subtree,
                             buckets,
-                            full_path,  # walk inside list elements, not as a flat path
-                            interleave,
-                            subtree_hydrate_tree,
+                            embedded_list_path=full_path,  # walk list elements, not a flat path
+                            list_chain=[full_path],
+                            interleave=interleave,
+                            hydrate_tree=subtree_hydrate_tree,
                         )
 
                     if preserve_orig:
@@ -280,6 +293,7 @@ class StageBuilder:
                         self._add_embedded_list_generic_lookup(
                             generic_field=leaf,
                             list_path=embedded_list_path,
+                            list_chain=list_chain or [embedded_list_path],
                             embedded_key=field.db_field,
                             foreign_match=foreign_match,
                             hydrate=requested_hydrate,
@@ -299,9 +313,10 @@ class StageBuilder:
                         f"{full_path}.",
                         subtree,
                         buckets,
-                        embedded_list_path,
-                        interleave,
-                        subtree_hydrate_tree,
+                        embedded_list_path=embedded_list_path,
+                        list_chain=list_chain,
+                        interleave=interleave,
+                        hydrate_tree=subtree_hydrate_tree,
                     )
                 continue
 
@@ -389,6 +404,7 @@ class StageBuilder:
                     self._add_embedded_list_generic_lookup(
                         generic_field=field,
                         list_path=embedded_list_path,
+                        list_chain=list_chain or [embedded_list_path],
                         embedded_key=field.db_field,
                         foreign_match=foreign_match,
                         hydrate=requested_hydrate,
@@ -451,9 +467,10 @@ class StageBuilder:
                                     f"{gp_path}.",
                                     sub_tree,
                                     buckets,
-                                    embedded_list_path,
-                                    interleave,
-                                    subtree_hydrate_tree.get(sub_name, {}),
+                                    embedded_list_path=embedded_list_path,
+                                    list_chain=list_chain,
+                                    interleave=interleave,
+                                    hydrate_tree=subtree_hydrate_tree.get(sub_name, {}),
                                 )
 
                             if orig_gp_alias:
@@ -1101,6 +1118,7 @@ class StageBuilder:
         field_shape,
         list_path: str,
         embedded_key: str,
+        list_chain: list[str] | None = None,
         foreign_match: dict | None = None,
         hydrate: bool = True,
     ):
@@ -1184,38 +1202,54 @@ class StageBuilder:
                 self._pipeline.append({"$project": {match_alias: 0}})
 
         if hydrate:
-            self._pipeline.append(
-                {
-                    "$addFields": {
-                        list_path: {
-                            "$cond": [
-                                {"$isArray": f"${list_path}"},
-                                {
-                                    "$map": {
-                                        "input": f"${list_path}",
-                                        "as": "it",
-                                        "in": {
-                                            "$mergeObjects": [
-                                                "$$it",
-                                                {
-                                                    embedded_key: self._build_value_expr(
-                                                        field_shape,
-                                                        f"$$it.{embedded_key}",
-                                                        f"${docs_alias}",
-                                                    )
-                                                },
-                                            ]
-                                        },
-                                    }
-                                },
-                                f"${list_path}",
-                            ]
-                        }
-                    }
-                }
+            chain = list_chain or [list_path]
+            hydrate_expr = self._build_nested_list_hydrate_expr(
+                chain,
+                0,
+                lambda it_var: {
+                    embedded_key: self._build_value_expr(
+                        field_shape, f"$${it_var}.{embedded_key}", f"${docs_alias}"
+                    )
+                },
             )
+            self._pipeline.append({"$addFields": {chain[0]: hydrate_expr}})
 
         self._pipeline.append({"$project": {docs_alias: 0}})
+
+    def _build_nested_list_hydrate_expr(
+        self, chain: list[str], idx: int, leaf_fields_fn
+    ) -> dict:
+        """Build a $map/$mergeObjects rewrite matching a chain of nested
+        EmbeddedDocumentListFields (e.g. integrations[].brands[].brand), so each array
+        level is mapped independently instead of flattening a dotted path that crosses
+        multiple array boundaries (which MongoDB turns into an array-of-arrays).
+
+        "leaf_fields_fn(it_var)" returns the dict of fields to merge into the innermost
+        item once the chain is fully descended.
+
+        # ponytail: chain[idx] is assumed to be a single field name (no intermediate
+        # plain EmbeddedDocumentField between two list levels); nest _walk_lookups
+        # further if that shape ever shows up.
+        """
+        is_last = idx == len(chain) - 1
+        it_var = f"it{idx}"
+        input_expr = f"${chain[0]}" if idx == 0 else f"$$it{idx - 1}.{chain[idx]}"
+
+        if is_last:
+            in_expr = {"$mergeObjects": [f"$${it_var}", leaf_fields_fn(it_var)]}
+        else:
+            inner_expr = self._build_nested_list_hydrate_expr(
+                chain, idx + 1, leaf_fields_fn
+            )
+            in_expr = {"$mergeObjects": [f"$${it_var}", {chain[idx + 1]: inner_expr}]}
+
+        return {
+            "$cond": [
+                {"$isArray": input_expr},
+                {"$map": {"input": input_expr, "as": it_var, "in": in_expr}},
+                input_expr,
+            ]
+        }
 
     # --------------------------------------------------------------------- #
     # GenericReference support (unchanged behavior, no db checks)
@@ -1362,6 +1396,7 @@ class StageBuilder:
         generic_field,
         list_path: str,
         embedded_key: str,
+        list_chain: list[str] | None = None,
         foreign_match: dict | None = None,
         hydrate: bool = True,
     ):
@@ -1563,60 +1598,38 @@ class StageBuilder:
                     expr = {"$cond": [class_test_val, branch, expr]}
                 return expr
 
-            self._pipeline.append(
-                {
-                    "$addFields": {
-                        list_path: {
-                            "$cond": [
-                                {"$isArray": f"${list_path}"},
-                                {
-                                    "$let": {
-                                        "vars": docs_vars,
-                                        "in": {
-                                            "$let": {
-                                                "vars": ids_vars,
-                                                "in": {
-                                                    "$map": {
-                                                        "input": f"${list_path}",
-                                                        "as": "it",
-                                                        "in": {
-                                                            "$mergeObjects": [
-                                                                "$$it",
-                                                                {
-                                                                    embedded_key: {
-                                                                        "$cond": [
-                                                                            {
-                                                                                "$isArray": f"$$it.{embedded_key}"
-                                                                            },
-                                                                            {
-                                                                                "$map": {
-                                                                                    "input": f"$$it.{embedded_key}",
-                                                                                    "as": "val",
-                                                                                    "in": hydrate_one_value(
-                                                                                        "$$val"
-                                                                                    ),
-                                                                                }
-                                                                            },
-                                                                            hydrate_one_value(
-                                                                                f"$$it.{embedded_key}"
-                                                                            ),
-                                                                        ]
-                                                                    }
-                                                                },
-                                                            ]
-                                                        },
-                                                    }
-                                                },
-                                            }
-                                        },
-                                    }
-                                },
-                                f"${list_path}",
-                            ]
-                        }
+            def leaf_fields_fn(it_var: str):
+                return {
+                    embedded_key: {
+                        "$cond": [
+                            {"$isArray": f"$${it_var}.{embedded_key}"},
+                            {
+                                "$map": {
+                                    "input": f"$${it_var}.{embedded_key}",
+                                    "as": "val",
+                                    "in": hydrate_one_value("$$val"),
+                                }
+                            },
+                            hydrate_one_value(f"$${it_var}.{embedded_key}"),
+                        ]
                     }
                 }
-            )
+
+            chain = list_chain or [list_path]
+            hydrate_expr = {
+                "$let": {
+                    "vars": docs_vars,
+                    "in": {
+                        "$let": {
+                            "vars": ids_vars,
+                            "in": self._build_nested_list_hydrate_expr(
+                                chain, 0, leaf_fields_fn
+                            ),
+                        }
+                    },
+                }
+            }
+            self._pipeline.append({"$addFields": {chain[0]: hydrate_expr}})
 
         self._pipeline.append(self._project_remove(*(docs_aliases + match_aliases)))
 
