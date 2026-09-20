@@ -857,14 +857,16 @@ class TestQuerysetPipelineBuilderStress(MongoDBAsyncTestCase):
                             {
                                 "$map": {
                                     "input": "$outer.inners",
-                                    "as": "it",
+                                    "as": "it0",
                                     "in": {
                                         "$mergeObjects": [
-                                            "$$it",
+                                            "$$it0",
                                             {
                                                 "parent": {
                                                     "$let": {
-                                                        "vars": {"orig": "$$it.parent"},
+                                                        "vars": {
+                                                            "orig": "$$it0.parent"
+                                                        },
                                                         "in": {
                                                             "$cond": [
                                                                 {
@@ -1020,14 +1022,16 @@ class TestQuerysetPipelineBuilderStress(MongoDBAsyncTestCase):
                             {
                                 "$map": {
                                     "input": "$outer.inners",
-                                    "as": "it",
+                                    "as": "it0",
                                     "in": {
                                         "$mergeObjects": [
-                                            "$$it",
+                                            "$$it0",
                                             {
                                                 "target": {
                                                     "$let": {
-                                                        "vars": {"orig": "$$it.target"},
+                                                        "vars": {
+                                                            "orig": "$$it0.target"
+                                                        },
                                                         "in": {
                                                             "$cond": [
                                                                 {
@@ -1130,3 +1134,46 @@ class TestQuerysetPipelineBuilderStress(MongoDBAsyncTestCase):
         ]
 
         assert pipeline == expected
+
+    def test_doubly_nested_embedded_list_reference_hydrate(self):
+        """Regression test: a ReferenceField nested two EmbeddedDocumentListFields deep
+        (e.g. integrations[].brands[].brand) used to crash MongoDB with:
+        "$mergeObjects requires object inputs, but input [...] is of type array"
+        because the hydrate stage flattened both array levels into one dotted $map.
+        """
+
+        class Brand(Document):
+            name = StringField()
+
+        class BrandLink(EmbeddedDocument):
+            brand = ReferenceField(Brand)
+            is_enabled = StringField()
+
+        class Integration(EmbeddedDocument):
+            brands = EmbeddedDocumentListField(BrandLink)
+
+        class OrgUnit(Document):
+            integrations = EmbeddedDocumentListField(Integration)
+
+        qs = OrgUnit.aobjects.select_related("integrations__brands__brand")
+        pipeline = PipelineBuilder(qs).build()
+
+        add_fields_stages = [s["$addFields"] for s in pipeline if "$addFields" in s]
+        hydrate_stages = [s for s in add_fields_stages if "integrations" in s]
+        assert len(hydrate_stages) == 1
+        hydrate_expr = hydrate_stages[0]["integrations"]
+
+        # Must target the outer list field only — never a dotted path crossing two arrays.
+        assert "integrations.brands" not in hydrate_stages[0]
+
+        outer_map = hydrate_expr["$cond"][1]["$map"]
+        assert outer_map["input"] == "$integrations"
+        outer_merge = outer_map["in"]["$mergeObjects"]
+        assert outer_merge[0] == "$$it0"
+
+        inner_cond = outer_merge[1]["brands"]
+        inner_map = inner_cond["$cond"][1]["$map"]
+        assert inner_map["input"] == "$$it0.brands"
+        inner_merge = inner_map["in"]["$mergeObjects"]
+        assert inner_merge[0] == "$$it1"
+        assert "brand" in inner_merge[1]
